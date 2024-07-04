@@ -432,6 +432,8 @@ def linkage_tree(
     linkage="complete",
     affinity="euclidean",
     return_distance=False,
+    distance_threshold_new=None,
+    size_thresholds_dict=None,
 ):
     """Linkage agglomerative clustering based on a Feature matrix.
 
@@ -642,35 +644,128 @@ def linkage_tree(
         A[ind] = IntFloatDict(
             np.asarray(row, dtype=np.intp), np.asarray(data, dtype=np.float64)
         )
+
+
         # We keep only the upper triangular for the heap
         # Generator expressions are faster than arrays on the following
         inertia.extend(
-            _hierarchical.WeightedEdge(d, ind, r) for r, d in zip(row, data) if r < ind
+            _hierarchical.WeightedEdge( d, ind, r) for r, d in zip(row, data) if r < ind
         )
     del connectivity
+    # print("mahi")
+    # print(len(inertia))
 
     heapify(inertia)
+    # print(len(inertia))
 
     # prepare the main fields
     parent = np.arange(n_nodes, dtype=np.intp)
     used_node = np.ones(n_nodes, dtype=np.intp)
     children = []
 
+    print('init')
+
+
+    # print(distance_threshold_new)
+    # print(size_thresholds_dict)
+
+    skipped = 0
+
+    cluster_size_dict = {}
+
+    # print('n_nodes: ' + str(n_nodes))
+    # print('n_samples: ' + str(n_samples))
+
+    loop = n_samples - 1
+    k = n_samples - 1
+    k_last = n_samples - 1
+
     # recursive merge loop
-    for k in range(n_samples, n_nodes):
+    while (loop<100000):
+        loop+=1
+        k_last += 1
+        k = k_last
+        #  fill in cluster size dict with ones for the first n_samples
+        if k == n_samples:
+            for i in range(n_samples):
+                cluster_size_dict[i] = 1
+        
+        # print(inertia)
+
+        break_out = False
+
+        while_loop = 0
         # identify the merge
         while True:
-            edge = heappop(inertia)
-            if used_node[edge.a] and used_node[edge.b]:
-                break
+            # print('loop: ' + str(while_loop))
+            while_loop+=1
+            if inertia:  # Check if inertia is not empty
+                edge = heappop(inertia)
+                # heapify(inertia)
+                # print(edge.weight)
+                if used_node[edge.a] and used_node[edge.b]:
+                    # heapify(inertia)  # Heapify the inertia after popping an element
+                    break
+            else:
+                break_out = True
+                # Handle the empty heap case or break/continue as appropriate
+                break  # Example: break out of the loop if inertia is empty
+
+        if break_out:
+            print('inertia heap empty')
+            break
+            
         i = edge.a
         j = edge.b
+        # print('i: ' + str(i))
+        # print('j: ' + str(j))
+        # print('usednode: ' + str(used_node))
+
+
+        # coord_col = join_func(A[i], A[j], used_node, used_node[i], used_node[j])
+        # print('mahimahi')
+        # print('A[i]: ' + str(A[i].to_arrays()))
+        # print('A[j]: ' + str(A[j].to_arrays()))
+        # print('len: ' + str(len(coord_col.to_arrays()[0])))
+        # print('i: ' + str(i))
+        # print('j: ' + str(j))
+        # print('bumbojumbo: ' + str(bumbojumbo))
+        # print('coord_col: ' + str(coord_col.to_arrays()))
+
+        final_cluster_size = cluster_size_dict[i] + cluster_size_dict[j]
+
+        size_thresholds_i = size_thresholds_dict.get(i, 10)
+        size_thresholds_j = size_thresholds_dict.get(j, 10)
+        # print(edge.weight)
+
+        if(edge.weight > distance_threshold_new):
+            print('skipping distance')
+            skipped+=1
+            n_nodes+=1
+            break
+
+        if(i in size_thresholds_dict and final_cluster_size > size_thresholds_i):
+            # print('skipping')
+            skipped+=1
+            n_nodes+=1
+            continue
+
+        if(j in size_thresholds_dict and final_cluster_size > size_thresholds_j):
+            # print('skipping')
+            skipped+=1
+            n_nodes+=1
+            continue
+
+        # print('k before: ' + str(k))
+        k = k - skipped
+        # print('k: ' + str(k))
 
         if return_distance:
             # store distances
             distances[k - n_samples] = edge.weight
 
         parent[i] = parent[j] = k
+        # print(parent)
         children.append((i, j))
         # Keep track of the number of elements per cluster
         n_i = used_node[i]
@@ -678,9 +773,20 @@ def linkage_tree(
         used_node[k] = n_i + n_j
         used_node[i] = used_node[j] = False
 
+
         # update the structure matrix A and the inertia matrix
         # a clever 'min', or 'max' operation between A[i] and A[j]
+    
+        # print("i, n_i = " + str(i) + ', ' + str(n_i))
+        # print("j, n_j = " + str(j) + ', ' + str(n_j))
+        
+        # print("i = " + str(i) )
+        # print(A[i].to_arrays())
+        # print("j = " + str(j) )
+        # print(A[j].to_arrays())
         coord_col = join_func(A[i], A[j], used_node, n_i, n_j)
+        # print(coord_col.to_arrays())
+
         for col, d in coord_col:
             A[col].append(k, d)
             # Here we use the information from coord_col (containing the
@@ -689,7 +795,11 @@ def linkage_tree(
         A[k] = coord_col
         # Clear A[i] and A[j] to save memory
         A[i] = A[j] = 0
+        cluster_size_dict[k] = final_cluster_size
+        size_thresholds_dict[k] = min(size_thresholds_dict.get(i, 100), size_thresholds_dict.get(j, 100))
 
+
+    print('done')
     # Separate leaves in children (empty lists up to now)
     n_leaves = n_samples
 
@@ -752,6 +862,10 @@ def _hc_cut(n_clusters, children, n_leaves):
     labels : array [n_samples]
         Cluster labels for each point.
     """
+    # print('n_clusters: ' + str(n_clusters))
+    # print('n_leaves: ' + str(n_leaves))
+    # print('children: ' + str(children))
+
     if n_clusters > n_leaves:
         raise ValueError(
             "Cannot extract more clusters than samples: "
@@ -763,6 +877,8 @@ def _hc_cut(n_clusters, children, n_leaves):
     # are interested in largest elements
     # children[-1] is the root of the tree
     nodes = [-(max(children[-1]) + 1)]
+    # print('nodes: ' + str(nodes))
+    # print(nodes[0], n_leaves)
     for _ in range(n_clusters - 1):
         # As we have a heap, nodes[0] is the smallest element
         these_children = children[-nodes[0] - n_leaves]
@@ -957,6 +1073,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         linkage="ward",
         distance_threshold=None,
         compute_distances=False,
+        distance_threshold_new=None,
+        size_threshold_dict=None
     ):
         self.n_clusters = n_clusters
         self.distance_threshold = distance_threshold
@@ -966,6 +1084,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         self.linkage = linkage
         self.metric = metric
         self.compute_distances = compute_distances
+        self.distance_threshold_new = distance_threshold_new
+        self.size_threshold_dict = size_threshold_dict
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
@@ -1062,6 +1182,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         n_clusters = self.n_clusters
         if compute_full_tree:
             n_clusters = None
+        # print('compute_full_tree: ' + str(compute_full_tree))
 
         # Construct the tree
         kwargs = {}
@@ -1078,8 +1199,11 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
             connectivity=connectivity,
             n_clusters=n_clusters,
             return_distance=return_distance,
+            distance_threshold_new=self.distance_threshold_new,
+            size_thresholds_dict=self.size_threshold_dict,
             **kwargs,
         )
+        # print('out: ' + str(out))
         (self.children_, self.n_connected_components_, self.n_leaves_, parents) = out[
             :4
         ]
@@ -1094,15 +1218,27 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         else:  # n_clusters is used
             self.n_clusters_ = self.n_clusters
 
+        compute_full_tree = False
+        self.n_clusters = 50
         # Cut the tree
         if compute_full_tree:
             self.labels_ = _hc_cut(self.n_clusters_, self.children_, self.n_leaves_)
         else:
             labels = _hierarchical.hc_get_heads(parents, copy=False)
+            # print('labels0: ')
+            # print(np.unique(labels))
             # copy to avoid holding a reference on the original array
             labels = np.copy(labels[:n_samples])
+            # print('head_labels: ')
+            # print(labels)
+
+            # print('labels: ')
+            # print(np.unique(labels))
+
             # Reassign cluster numbers
             self.labels_ = np.searchsorted(np.unique(labels), labels)
+            # print('labels: ')
+            # print(np.unique(self.labels_))
         return self
 
     def fit_predict(self, X, y=None):
