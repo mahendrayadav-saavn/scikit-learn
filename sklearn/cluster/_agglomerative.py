@@ -434,6 +434,7 @@ def linkage_tree(
     return_distance=False,
     distance_threshold_new=None,
     size_thresholds_dict=None,
+    language_dict=None,
 ):
     """Linkage agglomerative clustering based on a Feature matrix.
 
@@ -672,6 +673,8 @@ def linkage_tree(
     skipped = 0
 
     cluster_size_dict = {}
+    cluster_language_dict = {}
+    # print('lol.....lol......lol')
 
     # print('n_nodes: ' + str(n_nodes))
     # print('n_samples: ' + str(n_samples))
@@ -689,6 +692,12 @@ def linkage_tree(
         if k == n_samples:
             for i in range(n_samples):
                 cluster_size_dict[i] = 1
+
+        #  fill in cluster size dict with ones for the first n_samples
+        if k == n_samples:
+            for i in range(n_samples):
+                cluster_language_dict[i] = language_dict[i]
+
         
         # print(inertia)
 
@@ -733,6 +742,8 @@ def linkage_tree(
         # print('coord_col: ' + str(coord_col.to_arrays()))
 
         final_cluster_size = cluster_size_dict[i] + cluster_size_dict[j]
+        language_i = cluster_language_dict[i]
+        language_j = cluster_language_dict[j]
 
         size_thresholds_i = size_thresholds_dict.get(i, 10)
         size_thresholds_j = size_thresholds_dict.get(j, 10)
@@ -743,6 +754,12 @@ def linkage_tree(
             skipped+=1
             n_nodes+=1
             break
+
+        if(language_i != language_j):
+            # print('skipping language')
+            skipped+=1
+            n_nodes+=1
+            continue
 
         if(i in size_thresholds_dict and final_cluster_size > size_thresholds_i):
             # print('skipping')
@@ -796,6 +813,7 @@ def linkage_tree(
         # Clear A[i] and A[j] to save memory
         A[i] = A[j] = 0
         cluster_size_dict[k] = final_cluster_size
+        cluster_language_dict[k] = language_i
         size_thresholds_dict[k] = min(size_thresholds_dict.get(i, 100), size_thresholds_dict.get(j, 100))
 
 
@@ -1074,7 +1092,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         distance_threshold=None,
         compute_distances=False,
         distance_threshold_new=None,
-        size_threshold_dict=None
+        size_threshold_dict=None,
+        language_dict=None
     ):
         self.n_clusters = n_clusters
         self.distance_threshold = distance_threshold
@@ -1086,6 +1105,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         self.compute_distances = compute_distances
         self.distance_threshold_new = distance_threshold_new
         self.size_threshold_dict = size_threshold_dict
+        self.language_dict = language_dict
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
@@ -1201,6 +1221,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
             return_distance=return_distance,
             distance_threshold_new=self.distance_threshold_new,
             size_thresholds_dict=self.size_threshold_dict,
+            language_dict=self.language_dict,
             **kwargs,
         )
         # print('out: ' + str(out))
